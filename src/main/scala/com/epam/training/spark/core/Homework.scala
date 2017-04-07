@@ -59,15 +59,49 @@ object Homework {
 
   }
 
-  def getRawDataWithoutHeader(sc: SparkContext, rawDataPath: String): RDD[List[String]] = ???
+  def getRawDataWithoutHeader(sc: SparkContext, rawDataPath: String): RDD[List[String]] = {
+    val rddBudapest = sc.textFile(rawDataPath).cache()
+    rddBudapest
+      .filter(!_.startsWith("#"))
+      .map(_.split(Homework.DELIMITER, 7))
+      .map(_.toList)
+  }
 
-  def findErrors(rawData: RDD[List[String]]): List[Int] = ???
+  def findErrors(rawData: RDD[List[String]]): List[Int] = {
+    rawData
+      .map(list => list.map(f => if (f == null || f.isEmpty) {1} else {0}))
+      .reduce((list1, list2) => List(list1(0) + list2(0), list1(1) + list2(1), list1(2) + list2(2),
+        list1(3) + list2(3), list1(4) + list2(4), list1(5) + list2(5), list1(6) + list2(6)))
+      .toList
+  }
 
-  def mapToClimate(rawData: RDD[List[String]]): RDD[Climate] = ???
+  def mapToClimate(rawData: RDD[List[String]]): RDD[Climate] = {
+    rawData
+      .map(x => Climate.apply(x(0), x(1), x(2), x(3), x(4), x(5), x(6)))
+  }
 
-  def averageTemperature(climateData: RDD[Climate], month: Int, dayOfMonth: Int): RDD[Double] = ???
+  def averageTemperature(climateData: RDD[Climate], month: Int, dayOfMonth: Int): RDD[Double] = {
+    climateData
+      .filter(x => (x.observationDate.getMonth.getValue == month) && (x.observationDate.getDayOfMonth == dayOfMonth))
+      .map{x => (x.observationDate, x.meanTemperature)}
+      .sortBy(_._2.value, true)
+      .map(_._2.value)
+  }
 
-  def predictTemperature(climateData: RDD[Climate], month: Int, dayOfMonth: Int): Double = ???
+  def predictTemperature(climateData: RDD[Climate], month: Int, dayOfMonth: Int): Double = {
+    climateData
+      .filter(x => ((x.observationDate.getMonth.getValue == month) && (x.observationDate.getDayOfMonth == dayOfMonth))
+        || ((x.observationDate.minusDays(1).getMonth.getValue == month) && (x.observationDate.minusDays(1).getDayOfMonth == dayOfMonth))
+        || ((x.observationDate.plusDays(1).getMonth.getValue == month) && (x.observationDate.plusDays(1).getDayOfMonth == dayOfMonth))
+      )
+      .map(x =>  ((month, dayOfMonth),x.meanTemperature) )
+      .aggregateByKey((0.0, 0.0))(
+        (acc, value) => (acc._1 + value.value, acc._2 + 1),
+        (acc1, acc2) => (acc1._1 + acc2._1, acc1._2 + acc2._2))
+      .mapValues(sumCount => sumCount._1 / sumCount._2)
+      .map(x=> x._2)
+      .first()
+  }
 
 
 }
